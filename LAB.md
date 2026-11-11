@@ -2,9 +2,18 @@
 
 ## The situation
 
-The Clippy short links all use one name, `app.<your domain>`. That name points to one server. At 03:12 on a Sunday the server's disk filled up and every link in every printed brochure returned an error until somebody woke up at 07:40.
+```text
+RUNBOOK RB-09   Failover drill for app.<your domain>
+Owner    : on-call engineer (you)
+Trigger  : 03:12 on a Sunday, the primary server's disk filled up
+Impact   : every link in every printed brochure returned an error until 07:40
+Goal     : the name answers with the standby by itself, nobody wakes up
+Drill    : stop the primary on purpose and ask Route 53 itself what it answers
+```
 
-You will make the name smart: Route 53 **watches** the primary server with a health check, and when the check fails, it starts answering with the **standby** server's address instead. Nobody has to wake up. Then you will test it the honest way, by stopping the primary on purpose and asking Route 53 itself what it answers.
+The Clippy short links all use one name, `app.<your domain>`, and that name points to one server. You will make the name smart: Route 53 **watches** the primary with a health check, and when the check fails it starts answering with the **standby** server's address instead.
+
+This runbook is a drill. Each step has an action and a check, and a number to write down, because at the end you compute the real worst case from your own measurements.
 
 > **Your mission**
 > - Create a public hosted zone and two failover records (primary and secondary) with a short TTL
@@ -17,7 +26,7 @@ You will make the name smart: Route 53 **watches** the primary server with a hea
 
 ---
 
-## Part 0 - Set the scene
+## Step 0 - Prepare
 
 1. **Fork** this repository, clone it, and launch the two servers:
 
@@ -31,7 +40,7 @@ You get a **primary** and a **secondary** Clippy server, each with an **Elastic 
 
 ---
 
-## Part 1 - The zone and the health check
+## Step 1 - The zone and the health check
 
 1. Create a **public hosted zone** with the name `setup.sh` printed (`lab-<account id>.clippylab.net`). You do not own `clippylab.net` and you do not need to: the zone answers questions asked directly to Route 53, which is all this lab does. Tag the zone `lab = aws-route53-failover`.
 
@@ -45,7 +54,7 @@ aws route53 create-hosted-zone --name lab-<account>.clippylab.net --caller-refer
 
 ---
 
-## Part 2 - The two records
+## Step 2 - The two records
 
 Create two `A` records for `app.<zone>` in one change batch (a JSON file):
 
@@ -66,7 +75,7 @@ The answer is the primary's address.
 
 ---
 
-## Part 3 - Pull the plug
+## Step 3 - Pull the plug
 
 In one terminal, ask Route 53 every five seconds what it answers:
 
@@ -86,7 +95,7 @@ aws route53 get-health-check-status --health-check-id <id> --query 'HealthCheckO
 
 ---
 
-## Part 4 - Prove it
+## Step 4 - Prove it
 
 ```bash
 ./verify.sh
