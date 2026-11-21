@@ -34,7 +34,7 @@ This runbook is a drill. Each step has an action and a check, and a number to wr
 ./setup.sh
 ```
 
-You get a **primary** and a **secondary** Clippy server, each with an **Elastic IP** (so a stop and start does not change its address), and the exact name your hosted zone must have. The `version` field of `http://<ip>/healthz` says which server answered. Wait two minutes for Clippy to install.
+You get a **primary** and a **secondary** Clippy server, each with an **Elastic IP** (so a stop and start does not change its address), your **handle** (your IAM user name, shortened: everyone on the course shares one AWS account, so every name and tag carries it) and the exact name your hosted zone must have. Never touch a resource that carries someone else's handle. The `version` field of `http://<ip>/healthz` says which server answered. Wait two minutes for Clippy to install.
 
 > **Think** Why does the standby run all the time, costing money, instead of being started when the primary fails? What would a cold standby cost you in failover time?
 
@@ -42,13 +42,13 @@ You get a **primary** and a **secondary** Clippy server, each with an **Elastic 
 
 ## Step 1 - The zone and the health check
 
-1. Create a **public hosted zone** with the name `setup.sh` printed (`lab-<account id>.clippylab.net`). You do not own `clippylab.net` and you do not need to: the zone answers questions asked directly to Route 53, which is all this lab does. Tag the zone `lab = aws-route53-failover`.
+1. Create a **public hosted zone** with the name `setup.sh` printed (`lab-<handle>-<account id>.clippylab.net`). You do not own `clippylab.net` and you do not need to: the zone answers questions asked directly to Route 53, which is all this lab does. Tag the zone `lab = aws-route53-failover` and `student = <handle>`.
 
 ```bash
-aws route53 create-hosted-zone --name lab-<account>.clippylab.net --caller-reference lab-$(date +%s)
+aws route53 create-hosted-zone --name lab-<handle>-<account>.clippylab.net --caller-reference lab-$(date +%s)
 ```
 
-2. Create a **health check** on the primary's Elastic IP: type HTTP, port 80, path `/healthz`, **request interval 10 seconds**, **failure threshold 2**. Tag it `lab = aws-route53-failover` (use `aws route53 change-tags-for-resource --resource-type healthcheck`). Wait until `aws route53 get-health-check-status` says `Success`.
+2. Create a **health check** on the primary's Elastic IP: type HTTP, port 80, path `/healthz`, **request interval 10 seconds**, **failure threshold 2**. Tag it `lab = aws-route53-failover` and `student = <handle>` (use `aws route53 change-tags-for-resource --resource-type healthcheck`). Wait until `aws route53 get-health-check-status` says `Success`.
 
 > **Think** Route 53 checks from many places around the world, not from one. Why is that better than one checker, and what does it mean for the security group of the primary?
 

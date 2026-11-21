@@ -3,7 +3,8 @@ import json, os, subprocess, sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 os.chdir(ROOT)
 ACCOUNT = sys.argv[1]
-ZONE = "lab-%s.clippylab.net." % ACCOUNT
+STUDENT = sys.argv[2]
+ZONE = "lab-%s-%s.clippylab.net." % (STUDENT, ACCOUNT)
 NAME = "app." + ZONE
 passed = failed = 0
 
@@ -24,13 +25,14 @@ def aws(*a):
 
 
 check("no AWS keys in the repository", subprocess.run("git grep -lE 'AKIA[0-9A-Z]{16}' -- . ':!.lab' ':!verify.sh'", shell=True, capture_output=True, text=True).stdout.strip() == "")
+print("Your handle: %s (the checks look only at your servers and your zone)" % STUDENT)
 print("== The servers ==")
 ins = {}
-for r in (aws("ec2", "describe-instances", "--filters", "Name=tag:lab,Values=aws-route53-failover", "Name=instance-state-name,Values=pending,running,stopping,stopped") or {}).get("Reservations", []):
+for r in (aws("ec2", "describe-instances", "--filters", "Name=tag:lab,Values=aws-route53-failover", "Name=tag:student,Values=" + STUDENT, "Name=instance-state-name,Values=pending,running,stopping,stopped") or {}).get("Reservations", []):
     for i in r["Instances"]:
         role = next((t["Value"] for t in i.get("Tags", []) if t["Key"] == "Role"), "?")
         ins[role] = i
-adr = {a["InstanceId"]: a["PublicIp"] for a in (aws("ec2", "describe-addresses", "--filters", "Name=tag:lab,Values=aws-route53-failover") or {}).get("Addresses", []) if a.get("InstanceId")}
+adr = {a["InstanceId"]: a["PublicIp"] for a in (aws("ec2", "describe-addresses", "--filters", "Name=tag:lab,Values=aws-route53-failover", "Name=tag:student,Values=" + STUDENT) or {}).get("Addresses", []) if a.get("InstanceId")}
 ip = {role: adr.get(i["InstanceId"]) for role, i in ins.items()}
 check("primary and secondary servers exist with their Elastic IPs", sorted(ins) == ["primary", "secondary"] and all(ip.values()), "./setup.sh")
 print("== The hosted zone ==")
@@ -49,6 +51,8 @@ check("both records have a TTL of 60 seconds or less", bool(pri) and bool(sec) a
 check("the PRIMARY record is tied to a health check", bool(pri) and bool(pri.get("HealthCheckId")))
 hc = (aws("route53", "get-health-check", "--health-check-id", pri["HealthCheckId"]) or {}).get("HealthCheck", {}).get("HealthCheckConfig", {}) if pri and pri.get("HealthCheckId") else {}
 check("the health check is HTTP on port 80, path /healthz, against the primary's Elastic IP", hc.get("Type") == "HTTP" and hc.get("Port") == 80 and hc.get("ResourcePath") == "/healthz" and hc.get("IPAddress") == ip["primary"])
+tg = (aws("route53", "list-tags-for-resource", "--resource-type", "healthcheck", "--resource-id", pri["HealthCheckId"]) or {}).get("ResourceTagSet", {}).get("Tags", []) if pri and pri.get("HealthCheckId") else []
+check("the health check is tagged student=%s (the teardown finds it by that tag)" % STUDENT, any(t["Key"] == "student" and t["Value"] == STUDENT for t in tg))
 worst = hc.get("RequestInterval", 30) * hc.get("FailureThreshold", 3) if hc else 999
 check("the health check detects a failure within 40 seconds (interval x failure threshold = %ss)" % worst, worst <= 40, "use RequestInterval 10 and FailureThreshold 2 or 3")
 print("== What Route 53 answers ==")
@@ -65,7 +69,7 @@ else:
 import datetime
 pts = []
 if pri and pri.get("HealthCheckId"):
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     st = (now - datetime.timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
     en = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     d = aws("cloudwatch", "get-metric-statistics", "--region", "us-east-1", "--namespace", "AWS/Route53", "--metric-name", "HealthCheckStatus",
